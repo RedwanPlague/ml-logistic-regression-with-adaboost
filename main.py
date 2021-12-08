@@ -1,17 +1,19 @@
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
 
-print(np.eye(5))
+df = pd.read_csv('datasets/telco-customer-churn.csv')
 
-df = pd.DataFrame(np.random.randn(3, 4))
-print(df)
+print(df.columns.values)
 
-sc = StandardScaler()
-print(sc)
+for col in df.columns.values:
+    un = df[col].unique()
+    print('{} -> {} {}'.format(col, len(un), un))
 
-a = np.linspace(0, 2*np.pi, 100)
-b = np.sin(a)
-plt.plot(a, b)
-plt.show()
+for col in df.columns.values:
+    print(df[col].value_counts())
+
+print(df.head())
+
+one_hot_gender = pd.get_dummies(df['gender'], prefix='gender')
+df = pd.concat([df, one_hot_gender], axis=1).drop('gender', axis=1)
+
+print(df.head())
