@@ -5,8 +5,10 @@ import matplotlib.pyplot as plt
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.feature_selection import mutual_info_classif
+
+EPS = 1e-7
 
 
 def process_features(data, features_to_ignore, numerical_features, binary_features, categorical_features):
@@ -118,8 +120,35 @@ def adult_data_preprocessor(use_count=None):
     return x_train.T, x_test.T, y_train.T, y_test.T
 
 
+def credit_card_fraud_preprocessor(use_count=None):
+    df = pd.read_csv('datasets/credit-card-fraud.csv')
+
+    x, y = separate_labels(df, 'Class')
+
+    min_max_scaler = MinMaxScaler()
+    x[x.columns] = min_max_scaler.fit_transform(x[x.columns])
+
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=1)
+
+    x_train, x_test = select_on_info_gain(x_train, y_train, x_test, use_count)
+
+    return x_train.T, x_test.T, y_train.T, y_test.T
+
+
 def accuracy(y_true, y_pred):
     return 100 * accuracy_score(y_true.ravel(), y_pred.ravel())
+
+
+def metrics(y_true, y_pred):
+    tn, fp, fn, tp = confusion_matrix(y_true.ravel(), y_pred.ravel()).ravel()
+    return {
+        'accuracy': (tp + tn) / (tn + fp + fn + tp) * 100,
+        'recall': tp / (tp + fn + EPS),
+        'specificity': tn / (fp + tn + EPS),
+        'precision': tp / (tp + fp + EPS),
+        'fdr': fp / (tp + fp + EPS),
+        'f1_score': tp / (tp + 0.5 * (fp + fn) + EPS)
+    }
 
 
 def add_column_of_ones(x):
@@ -204,6 +233,7 @@ class AdaBoost:
 def main():
     x_train, x_test, y_train, y_test = telco_customer_churn_preprocessor()
     # x_train, x_test, y_train, y_test = adult_data_preprocessor()
+    # x_train, x_test, y_train, y_test = credit_card_fraud_preprocessor()
 
     # ab = AdaBoost([LogisticRegressor(alpha=0.1, max_iterations=2000, error_cutoff=0.0) for _ in range(10)])
     # ab.fit(x_train, y_train)
@@ -215,14 +245,8 @@ def main():
     train_pred = lr.predict(x_train)
     test_pred = lr.predict(x_test)
 
-    print('Train Accuracy: {:.2f}'.format(accuracy(y_train, train_pred)))
-    print('Test  Accuracy: {:.2f}'.format(accuracy(y_test, test_pred)))
-    print('Train Precision: {:.2f}'.format(precision_score(y_train.ravel(), train_pred.ravel())))
-    print('Test  Precision: {:.2f}'.format(precision_score(y_test.ravel(), test_pred.ravel())))
-    print('Train Recall: {:.2f}'.format(recall_score(y_train.ravel(), train_pred.ravel())))
-    print('Test  Recall: {:.2f}'.format(recall_score(y_test.ravel(), test_pred.ravel())))
-    print('Train F1 Score: {:.2f}'.format(f1_score(y_train.ravel(), train_pred.ravel())))
-    print('Test  F1 Score: {:.2f}'.format(f1_score(y_test.ravel(), test_pred.ravel())))
+    print('Train Metrics: {}'.format(metrics(y_train, train_pred)))
+    print('Test Metrics: {}'.format(metrics(y_test, test_pred)))
 
 
 if __name__ == '__main__':
