@@ -41,9 +41,9 @@ def separate_labels(data, label_col_name):
     return x, y
 
 
-def select_on_info_gain(x_train, y_train, x_test, use_count=None):
-    if use_count is None:
-        print('using all features')
+def select_on_info_gain(x_train, y_train, x_test, use_count=0):
+    if use_count == 0:
+        print('using all features\n\n')
         return np.array(x_train), np.array(x_test)
 
     info_gain = mutual_info_classif(x_train, y_train.ravel())
@@ -54,7 +54,7 @@ def select_on_info_gain(x_train, y_train, x_test, use_count=None):
     return np.array(x_train[final_features]), np.array(x_test[final_features])
 
 
-def scale_split(df, label_col_name, use_count=None):
+def scale_split(df, label_col_name, use_count=0):
     x, y = separate_labels(df, label_col_name)
 
     min_max_scaler = MinMaxScaler()
@@ -67,7 +67,7 @@ def scale_split(df, label_col_name, use_count=None):
     return x_train.T, x_test.T, y_train.T, y_test.T
 
 
-def telco_customer_churn_preprocessor(use_count=None):
+def telco_customer_churn_preprocessor(use_count=0):
     df = pd.read_csv('datasets/telco-customer-churn.csv', na_values=' ')
 
     features_to_ignore = ['customerID']
@@ -88,7 +88,7 @@ def telco_customer_churn_preprocessor(use_count=None):
     return scale_split(df, 'Churn', use_count)
 
 
-def adult_data_preprocessor(use_count=None):
+def adult_data_preprocessor(use_count=0):
     train_df = pd.read_csv('datasets/adult/adult.data', header=None, na_values='?', sep=', ', engine='python')
     test_df = pd.read_csv('datasets/adult/adult.test', skiprows=1, header=None, na_values='?', sep=', ',
                           engine='python')
@@ -125,13 +125,13 @@ def adult_data_preprocessor(use_count=None):
     return x_train.T, x_test.T, y_train.T, y_test.T
 
 
-def credit_card_fraud_preprocessor(use_count=None):
+def credit_card_fraud_preprocessor(use_count=0):
     df = pd.read_csv('datasets/credit-card-fraud.csv')
 
     label_col = 'Class'
 
     df_pos, df_neg = df[df[label_col] == 1], df[df[label_col] == 0]
-    df_neg = df_neg.sample(n=2000)
+    df_neg = df_neg.sample(n=20000)
     df = df_pos.merge(df_neg, how='outer').sample(frac=1)
 
     return scale_split(df, label_col, use_count)
@@ -221,7 +221,7 @@ class AdaBoost:
             x_train, y_train = features[:, indices], labels[:, indices]
             self.h[i].fit(x_train, y_train)
             y_pred = self.h[i].predict(features)
-            print('{:.2f}%'.format(accuracy(labels, y_pred)))
+            print('Accuracy of learner {}: {:.2f}%'.format(i + 1, accuracy(labels, y_pred)))
             error = w[labels != y_pred].sum()
             if error > 0.5:
                 continue
@@ -239,7 +239,7 @@ def checker(model, x_train, y_train, x_test, y_test):
     st = time_ns()
     model.fit(x_train, y_train)
     et = time_ns()
-    print('\n\t\t\tTime needed: {}ms\n'.format((et - st) * 1e-6))
+    print('\n\t\t\tTime needed: {:.2f}ms\n'.format((et - st) * 1e-6))
 
     train_pred = model.predict(x_train)
     test_pred = model.predict(x_test)
@@ -250,22 +250,29 @@ def checker(model, x_train, y_train, x_test, y_test):
 
 
 def main():
-    x_train, x_test, y_train, y_test = telco_customer_churn_preprocessor()
-    # x_train, x_test, y_train, y_test = adult_data_preprocessor()
-    # x_train, x_test, y_train, y_test = credit_card_fraud_preprocessor()
+    alpha = 0.1            # learning rate
+    max_iterations = 100   # maximum iterations of gradient descent
+    features_to_use = 5    # how many of the top features (based on information gain) to use
+    error_cutoff = 0.9     # minimum value of error, cuts off gradient descent
+    show_plot = False      # shows learning curve of logistic regression
+    hypothesis_count = 20  # how many hypotheses to pass to adaboost
 
-    alpha = 0.01
-    max_iterations = 100
-    error_cutoff = 0.9
-    show_plot = False
+    # x_train, x_test, y_train, y_test = telco_customer_churn_preprocessor(features_to_use)
+    # x_train, x_test, y_train, y_test = adult_data_preprocessor(features_to_use)
+    x_train, x_test, y_train, y_test = credit_card_fraud_preprocessor(features_to_use)
 
-    lr = LogisticRegressor(alpha=alpha, max_iterations=2000,
-                           error_cutoff=0.0, show_plot=show_plot)
+    # running a single (weak) learner
+    print('================  Single Logistic Regression ================\n')
+    lr = LogisticRegressor(alpha=alpha, max_iterations=max_iterations,
+                           error_cutoff=error_cutoff, show_plot=show_plot)
     checker(lr, x_train, y_train, x_test, y_test)
 
-    ab = AdaBoost([LogisticRegressor(alpha=alpha, max_iterations=max_iterations,
-                                     error_cutoff=error_cutoff, show_plot=show_plot)
-                   for _ in range(5)])
+    # running adaboost with multiple (weak) learners
+    print('================  Adaboost with {} learners ================\n'.format(hypothesis_count))
+    models = [LogisticRegressor(alpha=alpha, max_iterations=max_iterations,
+                                error_cutoff=error_cutoff, show_plot=show_plot)
+              for _ in range(hypothesis_count)]
+    ab = AdaBoost(models)
     checker(ab, x_train, y_train, x_test, y_test)
 
 
