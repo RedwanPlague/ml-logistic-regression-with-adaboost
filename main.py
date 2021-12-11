@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from time import time_ns
+from json import dumps
 
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import MinMaxScaler
@@ -9,9 +11,10 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.feature_selection import mutual_info_classif
 
 EPS = 1e-7
+np.random.seed(0)
 
 
-def process_features(data, features_to_ignore, numerical_features, binary_features, categorical_features):
+def process_features(data, features_to_ignore, numerical_features, categorical_features):
     for col in features_to_ignore:
         data = data.drop(col, axis=1)
 
@@ -25,11 +28,8 @@ def process_features(data, features_to_ignore, numerical_features, binary_featur
         if data[col].isnull().sum() > 0:
             data[col] = frequent_imputer.fit_transform(data[[col]]).ravel()
 
-    for col in binary_features:
-        data[col].replace({'Yes': 1, 'No': 0}, inplace=True)
-
     for col in categorical_features:
-        data = pd.concat([data, pd.get_dummies(data[col], prefix=col, prefix_sep='=')], axis=1)
+        data = pd.concat([data, pd.get_dummies(data[col], prefix=col, prefix_sep='=', drop_first=True)], axis=1)
         data = data.drop(col, axis=1)
 
     return data
@@ -46,12 +46,25 @@ def select_on_info_gain(x_train, y_train, x_test, use_count=None):
         print('using all features')
         return np.array(x_train), np.array(x_test)
 
-    info_gain = mutual_info_classif(x_train, y_train.ravel(), random_state=0)
+    info_gain = mutual_info_classif(x_train, y_train.ravel())
     gain_col_list = [(g, c) for g, c in zip(info_gain, x_train.columns)]
     gain_col_list.sort(reverse=True)
     final_features = [c for g, c in gain_col_list[:use_count]]
-    print('used features: {}'.format(final_features))
+    print('used features: {}\n\n'.format(final_features))
     return np.array(x_train[final_features]), np.array(x_test[final_features])
+
+
+def scale_split(df, label_col_name, use_count=None):
+    x, y = separate_labels(df, label_col_name)
+
+    min_max_scaler = MinMaxScaler()
+    x[x.columns] = min_max_scaler.fit_transform(x[x.columns])
+
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
+
+    x_train, x_test = select_on_info_gain(x_train, y_train, x_test, use_count)
+
+    return x_train.T, x_test.T, y_train.T, y_test.T
 
 
 def telco_customer_churn_preprocessor(use_count=None):
@@ -59,27 +72,20 @@ def telco_customer_churn_preprocessor(use_count=None):
 
     features_to_ignore = ['customerID']
     numerical_features = ['tenure', 'MonthlyCharges', 'TotalCharges']
-    binary_features = ['SeniorCitizen', 'Partner', 'Dependents', 'PhoneService', 'PaperlessBilling', 'Churn']
     categorical_features = ['gender', 'Contract', 'PaymentMethod', 'InternetService', 'MultipleLines',
                             'OnlineSecurity', 'OnlineBackup', 'DeviceProtection', 'TechSupport', 'StreamingTV',
-                            'StreamingMovies']
+                            'StreamingMovies', 'SeniorCitizen', 'Partner', 'Dependents', 'PhoneService',
+                            'PaperlessBilling']
 
     # df.replace({'No phone service': 'No', 'No internet service': 'No'}, inplace=True)
 
+    df['Churn'].replace({'Yes': 1, 'No': 0}, inplace=True)
+
     df['TotalCharges'] = df['TotalCharges'].astype('float')
 
-    df = process_features(df, features_to_ignore, numerical_features, binary_features, categorical_features)
+    df = process_features(df, features_to_ignore, numerical_features, categorical_features)
 
-    x, y = separate_labels(df, 'Churn')
-
-    min_max_scaler = MinMaxScaler()
-    x[x.columns] = min_max_scaler.fit_transform(x[x.columns])
-
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=0)
-
-    x_train, x_test = select_on_info_gain(x_train, y_train, x_test, use_count)
-
-    return x_train.T, x_test.T, y_train.T, y_test.T
+    return scale_split(df, 'Churn', use_count)
 
 
 def adult_data_preprocessor(use_count=None):
@@ -92,20 +98,19 @@ def adult_data_preprocessor(use_count=None):
                 '>50K']
     features_to_ignore = []
     numerical_features = ['age', 'final-weight', 'education-num', 'capital-gain', 'capital-loss', 'hours-per-week']
-    binary_features = ['>50K']
     categorical_features = ['work-class', 'education', 'marital-status', 'occupation',
                             'relationship', 'race', 'sex', 'native-country']
 
     train_df.columns = features
     test_df.columns = features
 
-    train_df['>50K'].replace({'>50K': 'Yes', '<=50K': 'No'}, inplace=True)
-    test_df['>50K'].replace({'>50K.': 'Yes', '<=50K.': 'No'}, inplace=True)
+    train_df['>50K'].replace({'>50K': 1, '<=50K': 0}, inplace=True)
+    test_df['>50K'].replace({'>50K.': 1, '<=50K.': 0}, inplace=True)
 
     split_index, _ = train_df.shape
     df = train_df.merge(test_df, how='outer')
 
-    df = process_features(df, features_to_ignore, numerical_features, binary_features, categorical_features)
+    df = process_features(df, features_to_ignore, numerical_features, categorical_features)
 
     min_max_scaler = MinMaxScaler()
     df[df.columns] = min_max_scaler.fit_transform(df[df.columns])
@@ -123,16 +128,13 @@ def adult_data_preprocessor(use_count=None):
 def credit_card_fraud_preprocessor(use_count=None):
     df = pd.read_csv('datasets/credit-card-fraud.csv')
 
-    x, y = separate_labels(df, 'Class')
+    label_col = 'Class'
 
-    min_max_scaler = MinMaxScaler()
-    x[x.columns] = min_max_scaler.fit_transform(x[x.columns])
+    df_pos, df_neg = df[df[label_col] == 1], df[df[label_col] == 0]
+    df_neg = df_neg.sample(n=2000)
+    df = df_pos.merge(df_neg, how='outer').sample(frac=1)
 
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=1)
-
-    x_train, x_test = select_on_info_gain(x_train, y_train, x_test, use_count)
-
-    return x_train.T, x_test.T, y_train.T, y_test.T
+    return scale_split(df, label_col, use_count)
 
 
 def accuracy(y_true, y_pred):
@@ -172,6 +174,8 @@ class LogisticRegressor:
         self.w = np.zeros((n, 1))
 
         print_interval = self.max_iterations // 10
+        final_iteration = self.max_iterations
+        print('iterations = ', end='')
 
         errors = []
         for i in range(self.max_iterations):
@@ -183,11 +187,12 @@ class LogisticRegressor:
             if i % print_interval == 0:
                 print('({})'.format(i), end=' ')
             if error <= self.error_cutoff:
+                final_iteration = i
                 break
             da = y - a
             dz = 1 - np.square(a)
             self.w += self.alpha * (x @ (da * dz).T) / m
-        print()
+        print('({})'.format(final_iteration))
 
         if self.show_plot:
             plt.plot(range(len(errors)), errors)
@@ -216,7 +221,7 @@ class AdaBoost:
             x_train, y_train = features[:, indices], labels[:, indices]
             self.h[i].fit(x_train, y_train)
             y_pred = self.h[i].predict(features)
-            print('{:.2f}'.format(accuracy(labels, y_pred)))
+            print('{:.2f}%'.format(accuracy(labels, y_pred)))
             error = w[labels != y_pred].sum()
             if error > 0.5:
                 continue
@@ -230,23 +235,38 @@ class AdaBoost:
         return y_pos_neg > 0.0
 
 
+def checker(model, x_train, y_train, x_test, y_test):
+    st = time_ns()
+    model.fit(x_train, y_train)
+    et = time_ns()
+    print('\n\t\t\tTime needed: {}ms\n'.format((et - st) * 1e-6))
+
+    train_pred = model.predict(x_train)
+    test_pred = model.predict(x_test)
+
+    print('Train Metrics: {}'.format(dumps(metrics(y_train, train_pred), indent=4)))
+    print('Test Metrics: {}'.format(dumps(metrics(y_test, test_pred), indent=4)))
+    print('\n')
+
+
 def main():
     x_train, x_test, y_train, y_test = telco_customer_churn_preprocessor()
     # x_train, x_test, y_train, y_test = adult_data_preprocessor()
     # x_train, x_test, y_train, y_test = credit_card_fraud_preprocessor()
 
-    # ab = AdaBoost([LogisticRegressor(alpha=0.1, max_iterations=2000, error_cutoff=0.0) for _ in range(10)])
-    # ab.fit(x_train, y_train)
-    # train_pred = ab.predict(x_train)
-    # test_pred = ab.predict(x_test)
+    alpha = 0.01
+    max_iterations = 100
+    error_cutoff = 0.9
+    show_plot = False
 
-    lr = LogisticRegressor(alpha=0.1, max_iterations=2000, error_cutoff=0.0)
-    lr.fit(x_train, y_train)
-    train_pred = lr.predict(x_train)
-    test_pred = lr.predict(x_test)
+    lr = LogisticRegressor(alpha=alpha, max_iterations=2000,
+                           error_cutoff=0.0, show_plot=show_plot)
+    checker(lr, x_train, y_train, x_test, y_test)
 
-    print('Train Metrics: {}'.format(metrics(y_train, train_pred)))
-    print('Test Metrics: {}'.format(metrics(y_test, test_pred)))
+    ab = AdaBoost([LogisticRegressor(alpha=alpha, max_iterations=max_iterations,
+                                     error_cutoff=error_cutoff, show_plot=show_plot)
+                   for _ in range(5)])
+    checker(ab, x_train, y_train, x_test, y_test)
 
 
 if __name__ == '__main__':
