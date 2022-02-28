@@ -60,7 +60,7 @@ def scale_split(df, label_col_name, use_count=0):
     min_max_scaler = MinMaxScaler()
     x[x.columns] = min_max_scaler.fit_transform(x[x.columns])
 
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.1)
 
     x_train, x_test = select_on_info_gain(x_train, y_train, x_test, use_count)
 
@@ -137,6 +137,24 @@ def credit_card_fraud_preprocessor(use_count=0):
     return scale_split(df, label_col, use_count)
 
 
+def online_data_preprocessor(use_count=0):
+    df = pd.read_csv('datasets/online.csv', header=None, na_values='?', sep=', ', engine='python')
+
+    df.columns = [str(i) for i in range(15)]
+
+    features_to_ignore = []
+    numerical_features = list(map(str, [0, 2, 4, 10, 11, 12]))
+    categorical_features = list(map(str, [1, 3, 5, 6, 7, 8, 9, 13]))
+
+    label_col = '14'
+
+    df[label_col].replace({'>50K': 1, '<=50K': 0}, inplace=True)
+
+    df = process_features(df, features_to_ignore, numerical_features, categorical_features)
+
+    return scale_split(df, label_col, use_count)
+
+
 def accuracy(y_true, y_pred):
     return 100 * accuracy_score(y_true.ravel(), y_pred.ravel())
 
@@ -170,8 +188,8 @@ class LogisticRegressor:
         x = add_column_of_ones(x)
         y = np.where(y < 0.5, -1, 1)
         n, m = x.shape
-        # self.w = np.random.rand(n, 1)
-        self.w = np.zeros((n, 1))
+        self.w = np.random.rand(n, 1)
+        # self.w = np.zeros((n, 1))
 
         print_interval = self.max_iterations // 10
         final_iteration = self.max_iterations
@@ -196,7 +214,7 @@ class LogisticRegressor:
 
         if self.show_plot:
             plt.plot(range(len(errors)), errors)
-            plt.ylim(0)
+            # plt.ylim(0)
             plt.show()
 
     def predict(self, x):
@@ -250,16 +268,21 @@ def checker(model, x_train, y_train, x_test, y_test):
 
 
 def main():
-    alpha = 0.1            # learning rate
-    max_iterations = 100   # maximum iterations of gradient descent
+    # only lr -> 1, 1000, 0, 0.0, rand
+    # for adaboost -> 0.01, 1000, 5, 0.9, rand
+    # 1 -> 1.05, rand
+    # 2 -> 0.9, zero
+    alpha = 0.01            # learning rate
+    max_iterations = 1000   # maximum iterations of gradient descent
     features_to_use = 5    # how many of the top features (based on information gain) to use
     error_cutoff = 0.9     # minimum value of error, cuts off gradient descent
     show_plot = False      # shows learning curve of logistic regression
-    hypothesis_count = 20  # how many hypotheses to pass to adaboost
+    hypothesis_count = 10   # how many hypotheses to pass to adaboost
 
     # x_train, x_test, y_train, y_test = telco_customer_churn_preprocessor(features_to_use)
     # x_train, x_test, y_train, y_test = adult_data_preprocessor(features_to_use)
-    x_train, x_test, y_train, y_test = credit_card_fraud_preprocessor(features_to_use)
+    # x_train, x_test, y_train, y_test = credit_card_fraud_preprocessor(features_to_use)
+    x_train, x_test, y_train, y_test = online_data_preprocessor(features_to_use)
 
     # running a single (weak) learner
     print('================  Single Logistic Regression ================\n')
